@@ -1,6 +1,6 @@
 # Razor barber shop (first draft)
 
-The Razor one-page design rebuilt in plain HTML, CSS and JavaScript (no Bootstrap, jQuery or icon fonts),
+Barber Shop website in plain HTML, CSS and JavaScript (no Bootstrap, jQuery or icon fonts),
 with an Express + SQLite (Node's built-in node:sqlite) back end: online booking and a content admin where the owner edits the site.
 
 ## Run
@@ -42,7 +42,7 @@ A barber account sees only Appointments, My profile and Gallery, limited to thei
 
 ## Credits and licences
 
-The layout, photos in public/img and the service icons come from the Razor template you supplied.
+The layout, photos in public/img and the service icons come from the free royalty websites.
 Check its licence before publishing, and replace the stock photos with your own (Admin, Images).
 The icons are from a Flaticon pack and need the attribution link in the footer.
 
