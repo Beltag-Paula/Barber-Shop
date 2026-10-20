@@ -67,3 +67,10 @@ body.login main { width: min(400px, 92vw); padding: 0; }
 body.login .card { padding: 28px; }
 body.login h1 { font-size: 1.4rem; }
 @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } .hours { grid-template-columns: 90px auto 1fr 1fr; } }
+
+/* ---- Language switch, bilingual fields, date field ---- */
+.loginlang { margin: 16px 0 0; text-align: center; }
+.loginlang .linkbtn { color: #fff; }
+.dinput { width: auto; }
+fieldset.bi { margin: 0; padding: 0; border: 0; display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 640px) { fieldset.bi { grid-template-columns: 1fr; } }

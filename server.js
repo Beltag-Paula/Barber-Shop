@@ -4,10 +4,12 @@ const session = require('express-session');
 const path = require('path');
 require('./db');
 const views = require('./views');
+const { LANGS, DEFAULT_LANG } = require('./i18n');
 
 if (!process.env.SESSION_SECRET) { console.error('Set SESSION_SECRET in .env'); process.exit(1); }
 
 const app = express();
+// app.set('trust proxy', 1); // enable when running behind nginx or a hosting proxy
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
@@ -24,17 +26,33 @@ app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
+  // The default MemoryStore is for development. Use a persistent store in production.
   cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 8 * 3600 * 1000 },
 }));
-
-
+// Language: the default language lives at the site root, the other under /ro or /en.
+// The prefix is removed before routing, and the language is kept in req.lang.
+app.use((req, res, next) => {
+  const m = req.url.match(new RegExp(`^/(${LANGS.join('|')})(?=/|\\?|$)`));
+  req.lang = DEFAULT_LANG;
+  if (!m) return next();
+  const rest = req.url.slice(m[0].length);
+  const url = rest.startsWith('/') ? rest : '/' + rest;
+  if (m[1] === DEFAULT_LANG) return res.redirect(301, url); // one address per page
+  req.lang = m[1];
+  req.url = url;
+  next();
+});
+// Fonts are served from this site (installed through the @fontsource npm packages), so visitors' browsers
+// never contact Google. This matters under the GDPR.
+app.use('/fonts', express.static(path.join(__dirname, 'node_modules', '@fontsource'), { maxAge: '30d', immutable: true }));
+// Uploaded files have unique names, so they can be cached for a long time.
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads'), { maxAge: '30d', immutable: true }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
 
 app.use('/admin', require('./routes/admin'));
 app.use(require('./routes/public'));
 
-app.use((req, res) => res.status(404).send(views.notFound()));
+app.use((req, res) => res.status(404).send(views.notFound(req.lang)));
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   if (err.name === 'MulterError') return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'That file is too large (10 MB maximum).' : 'Upload failed.' });

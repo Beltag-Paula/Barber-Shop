@@ -5,6 +5,9 @@ const db = new Database(process.env.DB_FILE || 'razor.db');
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// Dates are stored as shop-local 'YYYY-MM-DD' and times as minutes since midnight.
+// One shop, one time zone (set TZ in .env), so no UTC conversion is needed.
+// Image columns hold URL paths such as '/uploads/abc.webp'.
 db.exec(`
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS barbers (
@@ -62,6 +65,21 @@ CREATE TABLE IF NOT EXISTS admin_users (
 );
 `);
 
+// Columns added for the Romanian translations and the customer's language. Safe to run on an existing database.
+const addColumn = (table, col, def) => {
+  if (!db.prepare(`PRAGMA table_info(${table})`).all().some(r => r.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+};
+addColumn('services', 'name_ro', 'TEXT');
+addColumn('services', 'description_ro', 'TEXT');
+addColumn('barbers', 'role_ro', 'TEXT');
+addColumn('barbers', 'bio_ro', 'TEXT');
+addColumn('testimonials', 'label_ro', 'TEXT');
+addColumn('testimonials', 'quote_ro', 'TEXT');
+addColumn('gallery', 'tag_ro', 'TEXT');
+addColumn('gallery', 'caption_ro', 'TEXT');
+addColumn('appointments', 'lang', "TEXT NOT NULL DEFAULT 'en'");
+
+// Starter data so the site works on first run. Everything here is editable from /admin.
 if (!db.prepare('SELECT 1 FROM barbers').get()) {
   db.transaction(() => {
     const addBarber = db.prepare('INSERT INTO barbers (name, role, bio, email) VALUES (?,?,?,?)');
@@ -88,6 +106,21 @@ if (!db.prepare('SELECT 1 FROM barbers').get()) {
     addT.run('Another client', 'City', 'A second review shows the carousel at work. Edit or delete these in the admin.', 2);
   })();
 }
+
+// Romanian versions of the starter rows. Rows the owner has already edited are left alone.
+db.transaction(() => {
+  const svc = db.prepare('UPDATE services SET name_ro = ?, description_ro = ? WHERE name = ? AND description = ? AND name_ro IS NULL');
+  svc.run('Tuns', 'Consultație, spălat, tuns cu foarfeca și aranjat.', 'Haircut', 'Consultation, wash, scissor cut and style.');
+  svc.run('Bărbierit cu briciul', 'Prosop cald, spumă și bărbierit cu briciul drept.', 'Razor shave', 'Hot towel, lather and a straight-razor shave.');
+  svc.run('Aranjat barbă', 'Modelare, contur și finisare cu ulei pentru barbă.', 'Beard trim', 'Shape, line-up and finish with beard oil.');
+  svc.run('Tuns și barbă', 'Ambele, într-o singură ședință.', 'Haircut and beard', 'Both, in one sitting.');
+  const bar = db.prepare('UPDATE barbers SET role_ro = ?, bio_ro = ? WHERE role = ? AND bio = ? AND role_ro IS NULL');
+  bar.run('Proprietar, tunsori clasice', 'Scrie două sau trei propoziții despre tine: unde te-ai format, de cât timp tunzi, ce îți place cel mai mult.', 'Owner, classic cuts', 'Write two or three sentences about yourself: where you trained, how long you have been cutting, what you enjoy most.');
+  bar.run('Fade-uri și barbă', 'Scrie două sau trei propoziții despre tine.', 'Fades and beards', 'Write two or three sentences about yourself.');
+  const tm = db.prepare('UPDATE testimonials SET label_ro = ?, quote_ro = ? WHERE quote = ? AND quote_ro IS NULL');
+  tm.run('Oraș', 'Înlocuiește această recenzie cu una reală de la unul dintre clienții tăi. Scurtă și concretă funcționează cel mai bine.', 'Replace this with a real review from one of your clients. Short and specific works best.');
+  tm.run('Oraș', 'O a doua recenzie arată cum funcționează caruselul. Editează sau șterge recenziile din administrare.', 'A second review shows the carousel at work. Edit or delete these in the admin.');
+})();
 
 if (!db.prepare('SELECT 1 FROM admin_users').get() && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
   db.prepare('INSERT INTO admin_users (email, password_hash) VALUES (?, ?)')

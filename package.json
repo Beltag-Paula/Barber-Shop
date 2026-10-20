@@ -10,6 +10,9 @@
     "dev": "node --watch --env-file=.env server.js"
   },
   "dependencies": {
+    "@fontsource/abril-fatface": "^5.0.0",
+    "@fontsource/montserrat": "^5.0.0",
+    "@fontsource/source-sans-3": "^5.0.0",
     "bcryptjs": "^2.4.3",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",

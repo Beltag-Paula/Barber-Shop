@@ -1,13 +1,17 @@
 // Razor front end: loader, header, smooth scroll, nav highlight, carousel, gallery filter, forms. No libraries.
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const h = (tag, props = {}, ...kids) => { const el = Object.assign(document.createElement(tag), props); el.append(...kids); return el; };
+const h = (tag, props = {}, ...kids) => { const el = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k.includes('-') || k === 'role') el.setAttribute(k, v); else el[k] = v; } el.append(...kids); return el; };
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const LANG = document.documentElement.lang || 'en';
+const PFX = document.body.dataset.prefix || '';          // '' or '/ro': keeps internal links in the current language
+const T = JSON.parse(document.getElementById('i18n')?.textContent || '{}'); // interface strings for this language
 
 async function api(url, body, method = body ? 'POST' : 'GET') {
-  const res = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const headers = { 'X-Lang': LANG, ...(body ? { 'Content-Type': 'application/json' } : {}) };
+  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Something went wrong. Try again.');
+  if (!res.ok) throw new Error(data.error || T.errGeneric);
   return data;
 }
 
@@ -53,7 +57,7 @@ document.addEventListener('click', e => {
 
 // Highlight the nav link of the section in view.
 if ($('#home')) {
-  const links = new Map($$('.menu a').map(a => [new URL(a.href, location.href).hash.slice(1), a]));
+  const links = new Map($$('.menu a[href*="#"]').map(a => [new URL(a.href, location.href).hash.slice(1), a]));
   const seen = new IntersectionObserver(entries => {
     for (const en of entries) if (en.isIntersecting) { links.forEach(a => a.classList.remove('active')); links.get(en.target.id)?.classList.add('active'); }
   }, { rootMargin: '-45% 0px -50% 0px' });
@@ -92,8 +96,8 @@ if (contact) contact.addEventListener('submit', async e => {
   const f = contact.elements, out = $('#c-status');
   out.className = 'msg'; out.textContent = '';
   try {
-    await api('/api/contact', { name: f.name.value, phone: f.phone.value, message: f.message.value, website: f.website.value });
-    contact.replaceChildren(h('p', { className: 'msg ok', textContent: 'Message sent. We will call or text you back.' }));
+    await api('/api/contact', { name: f.name.value, phone: f.phone.value, message: f.message.value, website: f.website.value, consent: f.consent.checked });
+    contact.replaceChildren(h('p', { className: 'msg ok', textContent: T.sent }));
   } catch (err) { out.textContent = err.message; }
 });
 
@@ -105,7 +109,7 @@ function slotPicker(box, getParams, onPick) {
     if (!p) return;
     try {
       const { slots } = await api('/api/slots?' + new URLSearchParams(p));
-      if (!slots.length) { box.append(h('span', { className: 'hint', textContent: 'No times free on this day. Try another date.' })); return; }
+      if (!slots.length) { box.append(h('span', { className: 'hint', textContent: T.noTimes })); return; }
       for (const s of slots) {
         const b = h('button', { type: 'button', className: 'slot', textContent: s.label });
         b.setAttribute('aria-pressed', 'false');
@@ -118,9 +122,11 @@ function slotPicker(box, getParams, onPick) {
 
 const book = $('#book');
 if (book) {
-  const f = book.elements, msg = $('#msg'), offers = JSON.parse(book.dataset.offers);
+  const f = book.elements, msg = $('#msg'), offers = JSON.parse(book.dataset.offers), holder = $('#datepick');
+  const cal = Dates.field({ lang: LANG, inline: true, min: holder.dataset.min, max: holder.dataset.max, prevLabel: T.prevMonth, nextLabel: T.nextMonth });
+  holder.append(cal);
   let picked = null;
-  const refresh = slotPicker($('#slots'), () => (f.service.value && f.date.value ? { service: f.service.value, barber: f.barber.value, date: f.date.value } : null), s => (picked = s));
+  const refresh = slotPicker($('#slots'), () => (f.service.value && cal.value ? { service: f.service.value, barber: f.barber.value, date: cal.value } : null), s => (picked = s));
   const syncBarbers = () => {
     if (!f.barber.options) return; // a single barber is a hidden field
     for (const o of f.barber.options) o.hidden = o.disabled = !!o.value && !(offers[f.service.value] || []).includes(+o.value);
@@ -130,32 +136,35 @@ if (book) {
   if (q.get('service')) f.service.value = q.get('service');
   syncBarbers();
   if (q.get('barber') && f.barber.options) f.barber.value = q.get('barber');
-  for (const n of ['service', 'barber', 'date']) f[n].addEventListener('change', () => { picked = null; if (n === 'service') syncBarbers(); refresh(); });
+  for (const n of ['service', 'barber']) f[n].addEventListener('change', () => { picked = null; if (n === 'service') syncBarbers(); refresh(); });
+  cal.addEventListener('change', () => { picked = null; refresh(); });
   book.addEventListener('submit', async e => {
     e.preventDefault();
-    if (!picked) { msg.textContent = 'Choose a date and a time.'; return; }
+    if (!picked) { msg.textContent = T.pickDateTime; return; }
     msg.textContent = '';
     try {
-      const r = await api('/api/book', { service: f.service.value, barber: picked.barber_id, date: f.date.value, start_min: picked.start_min, name: f.fullname.value, phone: f.phone.value, email: f.email.value });
-      location.href = '/booking/' + r.token;
+      const r = await api('/api/book', { service: f.service.value, barber: picked.barber_id, date: cal.value, start_min: picked.start_min, name: f.fullname.value, phone: f.phone.value, email: f.email.value, consent: f.consent.checked });
+      location.href = `${PFX}/booking/${r.token}`;
     } catch (err) { msg.textContent = err.message; picked = null; refresh(); }
   });
 }
 
 const manage = $('#manage');
 if (manage) {
-  const d = manage.dataset, date = manage.querySelector('[name=date]'), msg = $('#msg');
+  const d = manage.dataset, msg = $('#msg');
+  const cal = Dates.field({ lang: LANG, inline: true, value: d.value, min: d.min, max: d.max, prevLabel: T.prevMonth, nextLabel: T.nextMonth });
+  $('#datepick').append(cal);
   let picked = null;
-  const refresh = slotPicker($('#slots'), () => (date.value ? { service: d.service, barber: d.barber, date: date.value, token: d.token } : null), s => (picked = s));
-  date.addEventListener('change', () => { picked = null; refresh(); });
+  const refresh = slotPicker($('#slots'), () => (cal.value ? { service: d.service, barber: d.barber, date: cal.value, token: d.token } : null), s => (picked = s));
+  cal.addEventListener('change', () => { picked = null; refresh(); });
   refresh();
   $('#move').onclick = async () => {
-    if (!picked) { msg.textContent = 'Choose a new time.'; return; }
-    try { await api(`/api/booking/${d.token}/move`, { date: date.value, start_min: picked.start_min }); location.reload(); }
+    if (!picked) { msg.textContent = T.pickNewTime; return; }
+    try { await api(`/api/booking/${d.token}/move`, { date: cal.value, start_min: picked.start_min }); location.reload(); }
     catch (e) { msg.textContent = e.message; refresh(); }
   };
   $('#cancel').onclick = async () => {
-    if (!confirm('Cancel this appointment?')) return;
+    if (!confirm(T.confirmCancel)) return;
     try { await api(`/api/booking/${d.token}/cancel`, {}); location.reload(); } catch (e) { msg.textContent = e.message; }
   };
 }

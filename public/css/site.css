@@ -1,3 +1,5 @@
+/* Razor: one-page barber shop theme. Plain CSS, no framework.
+   Section background images come from CSS variables set in the page <head> (--img-hero etc.). */
 :root {
   --gold: #b47f41; --gold-dark: #916634; --dark: #0f0a05; --cream: #f7f3ee; --ink: #212529;
   --display: 'Abril Fatface', Georgia, serif;
@@ -18,6 +20,7 @@ a:hover { color: var(--gold-dark); }
 .center { text-align: center; }
 .hp { position: absolute; left: -9999px; }
 
+/* ---- Page loader: three pulsing dots, fades out when the page has loaded ---- */
 .loader { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; background: #0f0a06; transition: opacity .6s ease, visibility .6s; }
 .loader.done { opacity: 0; visibility: hidden; }
 .balls { display: flex; gap: 4px; }
@@ -27,6 +30,7 @@ a:hover { color: var(--gold-dark); }
 .balls span:nth-child(3) { animation-delay: 0s; }
 @keyframes ball-pulse { 0% { transform: scale(1); opacity: 1; } 45% { transform: scale(.1); opacity: .7; } 80% { transform: scale(1); opacity: 1; } }
 
+/* ---- Top navigation: transparent at the top, dark and slimmer after scrolling ---- */
 .top-nav { position: fixed; inset: 0 0 auto 0; z-index: 1000; height: 80px; transition: height .5s ease, background-color .5s ease, box-shadow .5s ease; }
 .top-nav.scrolled, .top-nav.solid { height: 60px; background: rgba(0, 0, 0, .6); box-shadow: 0 0 10px rgba(0, 0, 0, .23); }
 .nav-inner { height: 100%; display: flex; align-items: center; gap: 16px; padding-inline: 24px; }
@@ -195,3 +199,26 @@ textarea.field { resize: vertical; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .parallax { background-attachment: scroll; }
 }
+
+/* ---- Language switch, skip link, consent boxes, privacy page ---- */
+.skip { position: absolute; left: 12px; top: -60px; z-index: 1300; padding: .6rem 1rem; color: #fff; background: var(--dark); border: 2px solid var(--gold); }
+.skip:focus { top: 12px; }
+.langs { display: flex; gap: 2px; }
+.langs a { padding: 4px 9px; font: 600 13px var(--head); color: #fff; text-decoration: none; border-radius: 50px; transition: background-color .3s; }
+.langs a:hover { background: rgba(180, 127, 65, .6); color: #fff; }
+.langs a[aria-current] { background: var(--gold); }
+.book-in-menu { display: none; }
+.consent { display: flex !important; align-items: flex-start; gap: 10px; font-weight: 400 !important; font-size: .95rem; }
+.consent input { width: auto; margin-top: .3rem; flex: none; }
+.consent a { color: var(--gold-dark); }
+.prose h2 { font: 700 1.2rem var(--head); margin: 1.6em 0 .4em; }
+.prose h2:first-child { margin-top: 0; }
+.prose p { max-width: 70ch; }
+.copy-footer .container > a { color: #fff; }
+@media (max-width: 991px) {
+  .langs { margin-left: auto; }
+  .nav-toggle { margin-left: 0; }
+  .book-btn { display: none; }
+  .book-in-menu { display: inline-block; margin-top: 14px; }
+}
+@media (min-width: 992px) { .langs { margin-left: 8px; } }

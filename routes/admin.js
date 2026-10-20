@@ -56,7 +56,7 @@ router.get('/api/appointments', wrap((req, res) => {
   const date = String(req.query.date || '');
   if (!validDate(date)) fail('Invalid date.');
   const own = req.session.user.barber_id;
-  const rows = db.prepare(`SELECT a.*, b.name AS barber_name, s.name AS service_name
+  const rows = db.prepare(`SELECT a.*, b.name AS barber_name, s.name AS service_name, s.name_ro AS service_name_ro
     FROM appointments a JOIN barbers b ON b.id = a.barber_id JOIN services s ON s.id = a.service_id
     WHERE a.date = ? AND a.status = 'booked' ${own ? 'AND a.barber_id = ?' : ''}
     ORDER BY b.id, a.start_min`).all(...(own ? [date, own] : [date]));
@@ -85,10 +85,10 @@ router.post('/api/appointments/:id/cancel', wrap((req, res) => {
 }));
 
 // ---- Site text and location ----
-router.get('/api/settings', owner, (req, res) => res.json({ fields: C.FIELDS, values: C.getSettings() }));
+router.get('/api/settings', owner, (req, res) => res.json({ fields: C.FIELDS, values: C.getAdminSettings() }));
 router.put('/api/settings', owner, wrap((req, res) => {
   try { C.setSettings(req.body || {}); } catch (e) { fail(e.message); }
-  res.json({ values: C.getSettings() });
+  res.json({ values: C.getAdminSettings() });
 }));
 
 // ---- Section background images ----
@@ -119,6 +119,7 @@ const linkBarbers = (serviceId, ids) => {
 function readService(b) {
   return {
     name: str(b.name, 80, 'Name', true), description: str(b.description, 200),
+    name_ro: str(b.name_ro, 80) || null, description_ro: str(b.description_ro, 200) || null,
     price: int(b.price, 0, 100000, 'Price'), duration: int(b.duration_min, 5, 600, 'Duration'),
     icon: v.ICON_KEYS.includes(b.icon) ? b.icon : 'scissors', sort: int(b.sort ?? 0, 0, 1000, 'Order'), active: b.active ? 1 : 0,
     barbers: Array.isArray(b.barbers) ? b.barbers.map(Number).filter(Number.isInteger) : null,
@@ -133,8 +134,8 @@ router.get('/api/services', owner, (req, res) => res.json({
 router.post('/api/services', owner, wrap((req, res) => {
   const s = readService(req.body || {});
   const id = db.transaction(() => {
-    const id = db.prepare('INSERT INTO services (name, description, duration_min, price, icon, sort, active) VALUES (?,?,?,?,?,?,?)')
-      .run(s.name, s.description, s.duration, s.price, s.icon, s.sort, s.active).lastInsertRowid;
+    const id = db.prepare('INSERT INTO services (name, description, name_ro, description_ro, duration_min, price, icon, sort, active) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(s.name, s.description, s.name_ro, s.description_ro, s.duration, s.price, s.icon, s.sort, s.active).lastInsertRowid;
     linkBarbers(id, s.barbers ?? db.prepare('SELECT id FROM barbers WHERE active = 1').all().map(r => r.id));
     return id;
   })();
@@ -145,8 +146,8 @@ router.put('/api/services/:id', owner, wrap((req, res) => {
   if (!exists('services', id)) fail('Service not found.', 404);
   const s = readService(req.body || {});
   db.transaction(() => {
-    db.prepare('UPDATE services SET name=?, description=?, duration_min=?, price=?, icon=?, sort=?, active=? WHERE id=?')
-      .run(s.name, s.description, s.duration, s.price, s.icon, s.sort, s.active, id);
+    db.prepare('UPDATE services SET name=?, description=?, name_ro=?, description_ro=?, duration_min=?, price=?, icon=?, sort=?, active=? WHERE id=?')
+      .run(s.name, s.description, s.name_ro, s.description_ro, s.duration, s.price, s.icon, s.sort, s.active, id);
     if (s.barbers) linkBarbers(id, s.barbers);
   })();
   res.json({ ok: true });
@@ -196,8 +197,8 @@ router.put('/api/team/:id', wrap((req, res) => {
   const email = str(b.email, 120);
   if (email && !EMAIL.test(email)) fail('Enter a valid email address for notifications.');
   const active = isOwner(req) ? (b.active ? 1 : 0) : db.prepare('SELECT active FROM barbers WHERE id = ?').get(id).active;
-  db.prepare('UPDATE barbers SET name=?, role=?, bio=?, email=?, active=? WHERE id=?')
-    .run(str(b.name, 80, 'Name', true), str(b.role, 80), str(b.bio, 1000), email || null, active, id);
+  db.prepare('UPDATE barbers SET name=?, role=?, bio=?, role_ro=?, bio_ro=?, email=?, active=? WHERE id=?')
+    .run(str(b.name, 80, 'Name', true), str(b.role, 80), str(b.bio, 1000), str(b.role_ro, 80) || null, str(b.bio_ro, 1000) || null, email || null, active, id);
   res.json({ ok: true });
 }));
 router.post('/api/team/:id/photo', upload.single('photo'), wrap(async (req, res) => {
@@ -266,16 +267,17 @@ router.put('/api/team/:id/login', owner, wrap((req, res) => {
 
 // ---- Testimonials ----
 function readQuote(b) {
-  return { name: str(b.name, 80, 'Name', true), label: str(b.label, 80), quote: str(b.quote, 500, 'Review', true), sort: int(b.sort ?? 0, 0, 1000, 'Order'), active: b.active ? 1 : 0 };
+  return { name: str(b.name, 80, 'Name', true), label: str(b.label, 80), quote: str(b.quote, 500, 'Review', true),
+    label_ro: str(b.label_ro, 80) || null, quote_ro: str(b.quote_ro, 500) || null, sort: int(b.sort ?? 0, 0, 1000, 'Order'), active: b.active ? 1 : 0 };
 }
 router.get('/api/testimonials', owner, (req, res) => res.json({ testimonials: db.prepare('SELECT * FROM testimonials ORDER BY sort, id').all() }));
 router.post('/api/testimonials', owner, wrap((req, res) => {
   const t = readQuote(req.body || {});
-  res.json({ id: db.prepare('INSERT INTO testimonials (name, label, quote, sort, active) VALUES (?,?,?,?,?)').run(t.name, t.label, t.quote, t.sort, t.active).lastInsertRowid });
+  res.json({ id: db.prepare('INSERT INTO testimonials (name, label, quote, label_ro, quote_ro, sort, active) VALUES (?,?,?,?,?,?,?)').run(t.name, t.label, t.quote, t.label_ro, t.quote_ro, t.sort, t.active).lastInsertRowid });
 }));
 router.put('/api/testimonials/:id', owner, wrap((req, res) => {
   const t = readQuote(req.body || {});
-  if (!db.prepare('UPDATE testimonials SET name=?, label=?, quote=?, sort=?, active=? WHERE id=?').run(t.name, t.label, t.quote, t.sort, t.active, +req.params.id).changes) fail('Not found.', 404);
+  if (!db.prepare('UPDATE testimonials SET name=?, label=?, quote=?, label_ro=?, quote_ro=?, sort=?, active=? WHERE id=?').run(t.name, t.label, t.quote, t.label_ro, t.quote_ro, t.sort, t.active, +req.params.id).changes) fail('Not found.', 404);
   res.json({ ok: true });
 }));
 router.delete('/api/testimonials/:id', owner, (req, res) => { db.prepare('DELETE FROM testimonials WHERE id = ?').run(+req.params.id); res.json({ ok: true }); });
@@ -290,7 +292,8 @@ router.post('/api/gallery', upload.single('photo'), wrap(async (req, res) => {
   const barberId = req.session.user.barber_id || Number(req.body?.barber_id) || null;
   if (barberId && !exists('barbers', barberId)) fail('Pick a barber from the list.');
   const url = await saveImage(req.file, { maxWidth: 1400 });
-  db.prepare('INSERT INTO gallery (barber_id, url, caption, tag) VALUES (?,?,?,?)').run(barberId, url, str(req.body?.caption, 200), str(req.body?.tag, 80));
+  db.prepare('INSERT INTO gallery (barber_id, url, caption, tag, caption_ro, tag_ro) VALUES (?,?,?,?,?,?)')
+    .run(barberId, url, str(req.body?.caption, 200), str(req.body?.tag, 80), str(req.body?.caption_ro, 200) || null, str(req.body?.tag_ro, 80) || null);
   res.json({ url });
 }));
 function ownedPhoto(req) {
@@ -301,7 +304,8 @@ function ownedPhoto(req) {
 }
 router.put('/api/gallery/:id', wrap((req, res) => {
   const g = ownedPhoto(req);
-  db.prepare('UPDATE gallery SET tag = ?, caption = ? WHERE id = ?').run(str(req.body?.tag, 80), str(req.body?.caption, 200), g.id);
+  db.prepare('UPDATE gallery SET tag = ?, caption = ?, tag_ro = ?, caption_ro = ? WHERE id = ?')
+    .run(str(req.body?.tag, 80), str(req.body?.caption, 200), str(req.body?.tag_ro, 80) || null, str(req.body?.caption_ro, 200) || null, g.id);
   res.json({ ok: true });
 }));
 router.delete('/api/gallery/:id', wrap((req, res) => {
