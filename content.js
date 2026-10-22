@@ -178,11 +178,11 @@ function setSettings(input) {
 
 // Section background images. Each has a bundled default; uploads replace it and can be reset.
 const IMAGE_SLOTS = {
-  hero: { label: 'Hero background', def: '/img/hero.jpg', maxWidth: 2200, hint: 'A wide photo, at least 1600 px across. A dark layer is added so the white text stays readable.' },
-  services: { label: 'Services background', def: '/img/services.jpg', maxWidth: 2000, hint: 'Dark photos work best. The default is a dark portrait that fades into the page.' },
-  about: { label: 'About background', def: '/img/about.jpg', maxWidth: 2000, hint: 'The text over it is dark. Any photo you upload gets a light layer on top so the text stays readable.' },
-  prices: { label: 'Prices background', def: '/img/prices.jpg', maxWidth: 2000, hint: 'A dark layer is added so the white text stays readable.' },
-  testimonials: { label: 'Testimonials background', def: '/img/testimonials.jpg', maxWidth: 2000, hint: 'The text over it is dark. Any photo you upload gets a light layer on top.' },
+  hero: { label: 'Hero background', def: '/img/hero.jpg', defPos: '50% 50%', minWidth: 1600, maxWidth: 2200, hint: 'A wide photo, at least 1600 px across. A dark layer is added so the white text stays readable.' },
+  services: { label: 'Services background', def: '/img/services.jpg', defPos: '100% 0%', minWidth: 1200, maxWidth: 2000, hint: 'Dark photos work best. The default is a dark portrait that fades into the page.' },
+  about: { label: 'About background', def: '/img/about.jpg', defPos: '0% 0%', minWidth: 1200, maxWidth: 2000, hint: 'The text over it is dark. Any photo you upload gets a light layer on top so the text stays readable.' },
+  prices: { label: 'Prices background', def: '/img/prices.jpg', defPos: '0% 0%', minWidth: 1200, maxWidth: 2000, hint: 'A dark layer is added so the white text stays readable.' },
+  testimonials: { label: 'Testimonials background', def: '/img/testimonials.jpg', defPos: '0% 0%', minWidth: 1200, maxWidth: 2000, hint: 'The text over it is dark. Any photo you upload gets a light layer on top.' },
 };
 
 const SAFE_URL = /^\/(uploads|img)\/[\w.-]+(\/[\w.-]+)*$/;
@@ -191,14 +191,28 @@ function slotUrl(slot) {
   return row && SAFE_URL.test(row.value) ? row.value : null;
 }
 const setSlot = (slot, url) => db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('img_' + slot, url);
-const clearSlot = slot => db.prepare('DELETE FROM settings WHERE key = ?').run('img_' + slot);
+const clearSlot = slot => { db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run('img_' + slot, `img_${slot}_pos`); };
+
+// A focal point is where the important part of a photo is, as 'x% y%'. CSS uses it (background-position and
+// object-position) so that whatever shape the photo has, the crop keeps that part in view.
+const POS = /^(\d{1,3}(?:\.\d{1,2})?)% (\d{1,3}(?:\.\d{1,2})?)%$/;
+function cleanPos(v) {
+  const m = POS.exec(String(v ?? '').trim());
+  return m && +m[1] <= 100 && +m[2] <= 100 ? `${+m[1]}% ${+m[2]}%` : null;
+}
+function slotPos(slot) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`img_${slot}_pos`);
+  return (row && cleanPos(row.value)) || (slotUrl(slot) ? '50% 50%' : IMAGE_SLOTS[slot].defPos);
+}
+const setPos = (slot, pos) => db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(`img_${slot}_pos`, pos);
+const resetPos = slot => db.prepare('DELETE FROM settings WHERE key = ?').run(`img_${slot}_pos`);
 
 // CSS variables for the page <head>, plus which slots hold a custom upload.
 function imageStyle() {
   const custom = {};
   const vars = Object.entries(IMAGE_SLOTS).map(([slot, s]) => {
     const u = slotUrl(slot); custom[slot] = !!u;
-    return `--img-${slot}:url("${u || s.def}")`;
+    return `--img-${slot}:url("${u || s.def}");--pos-${slot}:${slotPos(slot)}`;
   });
   return { css: `:root{${vars.join(';')}}`, custom };
 }
@@ -218,4 +232,4 @@ const mapsLink = s => hasMap(s)
   ? `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`
   : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.address)}`;
 
-module.exports = { DEFAULTS, DEFAULTS_RO, FIELDS, IMAGE_SLOTS, getSettings, getAdminSettings, setSettings, slotUrl, setSlot, clearSlot, imageStyle, parseHours, hasMap, mapEmbedUrl, mapsLink };
+module.exports = { DEFAULTS, DEFAULTS_RO, FIELDS, IMAGE_SLOTS, getSettings, getAdminSettings, setSettings, slotUrl, setSlot, clearSlot, cleanPos, slotPos, setPos, resetPos, imageStyle, parseHours, hasMap, mapEmbedUrl, mapsLink };

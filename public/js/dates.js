@@ -14,7 +14,8 @@ const Dates = (() => {
 
   // A calendar. inline: always visible (booking pages). Otherwise a text field showing dd/mm/yyyy that opens a popup.
   // The returned element has .value (YYYY-MM-DD or '') and fires a 'change' event when a day is picked.
-  function field({ lang = 'en', value = '', min = '', max = '', inline = false, label = '', prevLabel = 'Previous month', nextLabel = 'Next month' } = {}) {
+  // availability(month 'YYYY-MM') may return the dates of that month that can still be booked; the others are greyed out.
+  function field({ lang = 'en', value = '', min = '', max = '', inline = false, label = '', prevLabel = 'Previous month', nextLabel = 'Next month', availability = null, unavailableLabel = '' } = {}) {
     const root = el('div', { className: 'dfield' + (inline ? ' inline' : '') });
     let current = value, view = new Date((value ? parse(value) : min ? parse(min) : new Date()).setDate(1));
     const input = inline ? null : el('input', { type: 'text', readOnly: true, className: 'dinput', placeholder: lang === 'ro' ? 'zz.ll.aaaa' : 'dd/mm/yyyy', value: value ? fmt(value, lang) : '' });
@@ -26,12 +27,21 @@ const Dates = (() => {
     const longFmt = new Intl.DateTimeFormat(locale(lang), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     const monthStart = d => new Date(d.getFullYear(), d.getMonth(), 1);
     const open = () => !pop.hidden;
+    const cache = new Map(); let avail = null, ticket = 0;
+    const monthKey = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    async function loadAvailability() {
+      if (!availability) return;
+      const key = monthKey(view);
+      if (cache.has(key)) { avail = cache.get(key); draw(); return; }
+      avail = null; const mine = ++ticket;
+      try { const days = await availability(key); cache.set(key, new Set(days)); if (mine === ticket) { avail = cache.get(key); draw(); } } catch { /* keep the calendar usable if the request fails */ }
+    }
 
     function draw() {
       pop.replaceChildren();
       const y = view.getFullYear(), m = view.getMonth();
-      const prev = el('button', { type: 'button', textContent: '\u2039', 'aria-label': prevLabel, disabled: !!min && monthStart(parse(min)) >= view, onclick: () => { view = new Date(y, m - 1, 1); draw(); } });
-      const next = el('button', { type: 'button', textContent: '\u203a', 'aria-label': nextLabel, disabled: !!max && monthStart(parse(max)) <= view, onclick: () => { view = new Date(y, m + 1, 1); draw(); } });
+      const prev = el('button', { type: 'button', textContent: '\u2039', 'aria-label': prevLabel, disabled: !!min && monthStart(parse(min)) >= view, onclick: () => { view = new Date(y, m - 1, 1); draw(); loadAvailability(); } });
+      const next = el('button', { type: 'button', textContent: '\u203a', 'aria-label': nextLabel, disabled: !!max && monthStart(parse(max)) <= view, onclick: () => { view = new Date(y, m + 1, 1); draw(); loadAvailability(); } });
       pop.append(el('div', { className: 'cal-head' }, prev, el('span', { textContent: monthFmt.format(view), 'aria-live': 'polite' }), next));
       const grid = el('div', { className: 'cal-grid' });
       for (let i = 0; i < 7; i++) grid.append(el('span', { className: 'cal-dow', textContent: dowFmt.format(new Date(2024, 0, 1 + i)) })); // 1 Jan 2024 is a Monday
@@ -39,7 +49,9 @@ const Dates = (() => {
       const today = iso(new Date());
       for (let d = 1; d <= new Date(y, m + 1, 0).getDate(); d++) {
         const s = iso(new Date(y, m, d));
-        const b = el('button', { type: 'button', className: 'day' + (s === today ? ' today' : ''), textContent: d, disabled: (!!min && s < min) || (!!max && s > max), 'aria-label': longFmt.format(new Date(y, m, d)) });
+        const full = !!avail && !avail.has(s);
+        const b = el('button', { type: 'button', className: 'day' + (s === today ? ' today' : '') + (full ? ' full' : ''), textContent: d, disabled: (!!min && s < min) || (!!max && s > max) || full, 'aria-label': longFmt.format(new Date(y, m, d)) + (full && unavailableLabel ? `, ${unavailableLabel}` : '') });
+        if (full && unavailableLabel) b.title = unavailableLabel;
         b.setAttribute('aria-pressed', String(s === current));
         b.onclick = () => pick(s);
         grid.append(b);
@@ -53,6 +65,7 @@ const Dates = (() => {
       draw();
       root.dispatchEvent(new Event('change', { bubbles: true }));
     }
+    root.reloadAvailability = () => { cache.clear(); loadAvailability(); }; // call when the service or barber changes
     Object.defineProperty(root, 'value', {
       get: () => current,
       set: v => { current = v || ''; if (v) view = monthStart(parse(v)); if (input) input.value = v ? fmt(v, lang) : ''; draw(); },
@@ -66,6 +79,7 @@ const Dates = (() => {
       root.append(input, pop);
     } else root.append(pop, summary);
     draw();
+    loadAvailability();
     return root;
   }
 

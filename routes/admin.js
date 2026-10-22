@@ -6,7 +6,10 @@ const C = require('../content');
 const v = require('../views');
 const booking = require('../lib/booking');
 const { upload, saveImage, removeUpload } = require('../lib/images');
-const { validDate, hhmm, ymd } = require('../lib/availability');
+const { validDate, hhmm } = require('../lib/availability');
+const { shopNow, addDays } = require('../lib/shoptime');
+const stats = require('../lib/stats');
+const { toCsv } = require('../lib/csv');
 
 const loginLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false });
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -18,6 +21,7 @@ const int = (val, min, max, label) => { const n = Number(val); if (!Number.isInt
 const wrap = fn => (req, res, next) => { try { Promise.resolve(fn(req, res, next)).catch(next); } catch (e) { next(e); } };
 const isOwner = req => !req.session.user.barber_id;
 const owner = (req, res, next) => (isOwner(req) ? next() : res.status(403).json({ error: 'Only the owner can do that.' }));
+const position = val => C.cleanPos(val) || fail('Invalid position.');
 const exists = (table, id) => !!db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id);
 
 router.get('/login', (req, res) => (req.session.user ? res.redirect('/admin') : res.send(v.login())));
@@ -93,15 +97,21 @@ router.put('/api/settings', owner, wrap((req, res) => {
 
 // ---- Section background images ----
 router.get('/api/images', owner, (req, res) => res.json({ images: Object.entries(C.IMAGE_SLOTS).map(([slot, s]) =>
-  ({ slot, label: s.label, hint: s.hint, url: C.slotUrl(slot) || s.def, custom: !!C.slotUrl(slot) })) }));
+  ({ slot, label: s.label, hint: s.hint, minWidth: s.minWidth, url: C.slotUrl(slot) || s.def, pos: C.slotPos(slot), custom: !!C.slotUrl(slot) })) }));
 router.post('/api/images/:slot', owner, upload.single('photo'), wrap(async (req, res) => {
   const s = C.IMAGE_SLOTS[req.params.slot];
   if (!s) fail('Unknown image.', 404);
   const url = await saveImage(req.file, { maxWidth: s.maxWidth });
   const old = C.slotUrl(req.params.slot);
   C.setSlot(req.params.slot, url);
+  C.resetPos(req.params.slot); // a new photo starts centred
   removeUpload(old);
   res.json({ url });
+}));
+router.put('/api/images/:slot/pos', owner, wrap((req, res) => {
+  if (!C.IMAGE_SLOTS[req.params.slot]) fail('Unknown image.', 404);
+  C.setPos(req.params.slot, position(req.body?.pos));
+  res.json({ ok: true });
 }));
 router.delete('/api/images/:slot', owner, wrap((req, res) => {
   if (!C.IMAGE_SLOTS[req.params.slot]) fail('Unknown image.', 404);
@@ -174,7 +184,7 @@ function teamRow(b, ownerView) {
   for (const h of db.prepare('SELECT weekday, opens, closes FROM working_hours WHERE barber_id = ?').all(b.id)) hours[h.weekday] = { opens: h.opens, closes: h.closes };
   const login = ownerView ? db.prepare('SELECT email FROM admin_users WHERE barber_id = ?').get(b.id) : null;
   return { ...b, hours, login_email: login?.email || '',
-    timeoff: db.prepare('SELECT id, date, reason FROM time_off WHERE barber_id = ? AND date >= ? ORDER BY date').all(b.id, ymd(new Date())) };
+    timeoff: db.prepare('SELECT id, date, reason FROM time_off WHERE barber_id = ? AND date >= ? ORDER BY date').all(b.id, shopNow().date) };
 }
 router.get('/api/team', (req, res) => {
   const own = req.session.user.barber_id;
@@ -205,13 +215,18 @@ router.post('/api/team/:id/photo', upload.single('photo'), wrap(async (req, res)
   const id = +req.params.id; canEditBarber(req, id);
   const url = await saveImage(req.file, { maxWidth: 900 });
   removeUpload(db.prepare('SELECT photo FROM barbers WHERE id = ?').get(id).photo);
-  db.prepare('UPDATE barbers SET photo = ? WHERE id = ?').run(url, id);
+  db.prepare('UPDATE barbers SET photo = ?, photo_pos = NULL WHERE id = ?').run(url, id);
   res.json({ url });
+}));
+router.put('/api/team/:id/photo-pos', wrap((req, res) => {
+  const id = +req.params.id; canEditBarber(req, id);
+  db.prepare('UPDATE barbers SET photo_pos = ? WHERE id = ?').run(position(req.body?.pos), id);
+  res.json({ ok: true });
 }));
 router.delete('/api/team/:id/photo', wrap((req, res) => {
   const id = +req.params.id; canEditBarber(req, id);
   removeUpload(db.prepare('SELECT photo FROM barbers WHERE id = ?').get(id).photo);
-  db.prepare('UPDATE barbers SET photo = NULL WHERE id = ?').run(id);
+  db.prepare('UPDATE barbers SET photo = NULL, photo_pos = NULL WHERE id = ?').run(id);
   res.json({ ok: true });
 }));
 // Weekly schedule: days[0..6] (Sunday first), each null for a day off or {opens, closes}.
@@ -291,7 +306,7 @@ router.get('/api/gallery', (req, res) => {
 router.post('/api/gallery', upload.single('photo'), wrap(async (req, res) => {
   const barberId = req.session.user.barber_id || Number(req.body?.barber_id) || null;
   if (barberId && !exists('barbers', barberId)) fail('Pick a barber from the list.');
-  const url = await saveImage(req.file, { maxWidth: 1400 });
+  const url = await saveImage(req.file, { maxWidth: 1400, thumb: 640 });
   db.prepare('INSERT INTO gallery (barber_id, url, caption, tag, caption_ro, tag_ro) VALUES (?,?,?,?,?,?)')
     .run(barberId, url, str(req.body?.caption, 200), str(req.body?.tag, 80), str(req.body?.caption_ro, 200) || null, str(req.body?.tag_ro, 80) || null);
   res.json({ url });
@@ -302,6 +317,11 @@ function ownedPhoto(req) {
   if (!g || (own && g.barber_id !== own)) fail('Photo not found.', 404);
   return g;
 }
+router.put('/api/gallery/:id/pos', wrap((req, res) => {
+  const g = ownedPhoto(req);
+  db.prepare('UPDATE gallery SET pos = ? WHERE id = ?').run(position(req.body?.pos), g.id);
+  res.json({ ok: true });
+}));
 router.put('/api/gallery/:id', wrap((req, res) => {
   const g = ownedPhoto(req);
   db.prepare('UPDATE gallery SET tag = ?, caption = ?, tag_ro = ?, caption_ro = ? WHERE id = ?')
@@ -313,6 +333,24 @@ router.delete('/api/gallery/:id', wrap((req, res) => {
   db.prepare('DELETE FROM gallery WHERE id = ?').run(g.id);
   removeUpload(g.url);
   res.json({ ok: true });
+}));
+
+// ---- Dashboard numbers and CSV downloads. A barber login sees only its own numbers. ----
+function period(req) {
+  const def = stats.monthRange(shopNow().date);
+  return { from: String(req.query.from || def.from), to: String(req.query.to || def.to), barberId: req.session.user.barber_id || 0 };
+}
+router.get('/api/stats', wrap((req, res) => {
+  res.json({ ...stats.overview(period(req)), currency: C.getSettings().currency });
+}));
+router.get('/api/export.csv', wrap((req, res) => {
+  const kind = String(req.query.kind || 'appointments');
+  const p = period(req);
+  const rows = stats.exportRows(kind, { ...p, lang: req.query.lang === 'ro' ? 'ro' : 'en' });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${kind}-${p.from}_${p.to}.csv"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(toCsv(rows, req.query.sep === ';' ? ';' : ','));
 }));
 
 // ---- Contact messages ----

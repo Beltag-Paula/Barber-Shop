@@ -15,3 +15,13 @@
 .day.today { box-shadow: inset 0 0 0 1px var(--gold, #b47f41); }
 .day[aria-pressed="true"] { color: #fff; background: var(--gold, #b47f41); }
 .picked { min-height: 1.4em; margin: .6rem 0 0; font-weight: 600; }
+
+/* Phones: full-width inline calendar, big tap targets, popups that stay on screen */
+.dfield.inline .cal { max-width: 420px; }
+.day { min-height: 40px; }
+.cal-head button { width: 44px; height: 44px; }
+.dfield:not(.inline) .cal { max-width: calc(100vw - 32px); }
+@media (max-width: 767px) { .dfield.inline .cal { max-width: none; } }
+
+/* Days with no free time (full, closed or blocked) */
+.day.full:disabled { color: #bbb; text-decoration: line-through; }

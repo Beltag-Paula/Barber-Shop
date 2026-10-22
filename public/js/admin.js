@@ -55,6 +55,26 @@ const RO = {
   'Add a photo': 'Adaugă o fotografie', 'Barber': 'Frizer', 'No barber': 'Fără frizer', 'What it shows': 'Ce arată', 'Add photo': 'Adaugă fotografia',
   'Skin fade, beard line-up': 'Fade, contur barbă', 'Describe the photo for screen readers': 'Descrie fotografia pentru cititoarele de ecran',
   'No messages yet.': 'Încă nu sunt mesaje.',
+  // credit and slots
+  'Created by PumaBytes (alias Paula Beltag)': 'Creat de PumaBytes (alias Paula Beltag)', 'Already booked': 'Ocupat', 'Time has passed': 'Ora a trecut', 'Not available': 'Indisponibil',
+  // dashboard
+  'Dashboard': 'Panou de control', 'Period': 'Perioadă', 'Today': 'Azi', 'This week': 'Săptămâna aceasta', 'This month': 'Luna aceasta', 'Last month': 'Luna trecută', 'This year': 'Anul acesta', 'Custom': 'Personalizat',
+  'From': 'De la', 'To': 'Până la', 'Show': 'Afișează', 'Completed': 'Efectuate', 'Upcoming': 'Viitoare', 'Cancelled': 'Anulate', 'Earned': 'Încasat', 'Expected': 'Estimat',
+  'Average per appointment': 'Medie per programare', 'Cancellation rate': 'Rată de anulare', 'Appointments per barber': 'Programări per frizer', 'Revenue per barber': 'Venit per frizer',
+  'Share of appointments by service': 'Programări pe servicii', 'Appointment status': 'Starea programărilor', 'No data in this period.': 'Nu sunt date în această perioadă.', 'Total': 'Total', 'Date': 'Data', 'Month': 'Luna', 'Revenue': 'Venit',
+  'By barber': 'Pe frizeri', 'Revenue per day': 'Venit pe zile', 'Revenue per month': 'Venit pe luni', 'Choose a shorter period (up to 62 days) to see the numbers per day.': 'Alege o perioadă mai scurtă (până la 62 de zile) pentru a vedea cifrele pe zile.',
+  'Download': 'Descarcă', 'Separator': 'Separator', 'Comma (Google Sheets)': 'Virgulă (Google Sheets)', 'Semicolon (Excel with European settings)': 'Punct și virgulă (Excel cu setări europene)',
+  'All appointments (CSV)': 'Toate programările (CSV)', 'Summary per barber (CSV)': 'Rezumat per frizer (CSV)', 'Per day (CSV)': 'Pe zile (CSV)', 'Per month (CSV)': 'Pe luni (CSV)',
+  'Open the file in Google Sheets with File, Import, Upload, or double-click it to open it in Excel. The appointments file contains customers\' personal data: keep it safe.': 'Deschide fișierul în Google Sheets prin Fișier, Import, Încărcare, sau dă dublu clic pentru a-l deschide în Excel. Fișierul cu programări conține datele personale ale clienților: păstrează-l în siguranță.',
+  'Earned counts appointments that have already taken place, expected counts those still ahead. Cancelled appointments are not counted. Prices are the ones saved when the appointment was booked.': 'Încasat înseamnă programările care au avut deja loc, estimat cele care urmează. Programările anulate nu sunt numărate. Prețurile sunt cele salvate la momentul programării.',
+  'Choose a valid period.': 'Alege o perioadă validă.', 'Choose a period of at most one year.': 'Alege o perioadă de cel mult un an.', 'Unknown export.': 'Export necunoscut.',
+  'appointments': 'programări',
+  // image position
+  'Image position': 'Poziția imaginii', 'Save position': 'Salvează poziția', 'Invalid position.': 'Poziție invalidă.',
+  'Click or drag on the photo to choose the part that must stay visible when it is cropped.': 'Apasă sau trage pe fotografie pentru a alege partea care trebuie să rămână vizibilă la decupare.',
+  'Photos are cropped to fit each section. Click the photo to mark the part that must always stay visible; the previews show the result on a computer and on a phone.': 'Fotografiile sunt decupate pentru a se potrivi fiecărei secțiuni. Apasă pe fotografie pentru a marca partea care trebuie să rămână mereu vizibilă; previzualizările arată rezultatul pe computer și pe telefon.',
+  'This image is small ({w} px wide) and may look blurry. Use one at least {min} px wide.': 'Imaginea este mică (lățime {w} px) și poate arăta neclar. Folosește una cu lățimea de cel puțin {min} px.',
+  'Desktop': 'Computer', 'Team card': 'Card echipă', 'Gallery tile': 'Miniatură galerie', 'Phone tile': 'Miniatură pe telefon',
   // password dialog
   'Current password': 'Parola actuală', 'New password (at least 10 characters)': 'Parolă nouă (cel puțin 10 caractere)',
   // messages from the server
@@ -85,8 +105,10 @@ function t(s) {
 }
 document.documentElement.lang = LANG;
 document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.textContent); });
-const langBtn = $('#lang');
-if (langBtn) { langBtn.textContent = LANG === 'ro' ? 'EN' : 'RO'; langBtn.onclick = () => { localStorage.setItem('adminLang', LANG === 'ro' ? 'en' : 'ro'); location.reload(); }; }
+document.querySelectorAll('[data-lang]').forEach(b => {
+  b.setAttribute('aria-pressed', String(b.dataset.lang === LANG));
+  b.onclick = () => { localStorage.setItem('adminLang', b.dataset.lang); location.reload(); };
+});
 
 async function api(url, body, method = body ? 'POST' : 'GET') {
   const isForm = body instanceof FormData;
@@ -175,7 +197,215 @@ function uploader(label, url, done, extra = {}) {
   } });
   return h('div', { className: 'stack' }, file, h('div', { className: 'actions' }, btn), msg);
 }
+// ---- Focal point picker ----
+// Shows the photo. Click or drag (or use the arrow keys) to mark the part that must stay visible when the photo is
+// cropped. The frames underneath show the result in the shapes the site uses, on a computer and on a phone.
+const FRAMES = {
+  wide: [['Desktop', '16 / 10', 230], ['Phone', '9 / 19', 92]],
+  square: [['Team card', '1 / 1', 150]],
+  tile: [['Gallery tile', '4 / 5', 120], ['Phone tile', '1 / 1', 100]],
+};
+function focalPicker({ url, pos, frames, minWidth = 0, onSave }) {
+  const parse = v => { const m = /^([\d.]+)% ([\d.]+)%$/.exec(v || ''); return m ? [+m[1], +m[2]] : [50, 50]; };
+  let [x, y] = parse(pos);
+  const img = h('img', { alt: '', draggable: false });
+  const dot = h('span', { className: 'focal-dot' });
+  const stage = h('div', { className: 'focal-stage', tabIndex: 0 }, img, dot);
+  stage.setAttribute('role', 'group'); stage.setAttribute('aria-label', t('Image position'));
+  const warn = h('p', { className: 'msg', role: 'status' });
+  const previews = [];
+  const frameBox = h('div', { className: 'frames' }, ...frames.map(([label, ratio, width]) => {
+    const im = h('img', { alt: '' }); previews.push(im);
+    const box = h('div', { className: 'frame' }, im); box.style.width = `${width}px`; box.style.aspectRatio = ratio;
+    return h('figure', { className: 'frame-wrap' }, box, h('figcaption', { textContent: t(label) }));
+  }));
+  const msg = h('p', { className: 'msg', role: 'status' });
+  const clamp = v => Math.max(0, Math.min(100, v));
+  const fmt = () => `${Math.round(x * 100) / 100}% ${Math.round(y * 100) / 100}%`;
+  const render = () => { dot.style.left = `${x}%`; dot.style.top = `${y}%`; for (const im of previews) im.style.objectPosition = `${x}% ${y}%`; };
+  function setImage(newUrl, newPos) {
+    for (const im of [img, ...previews]) { if (newUrl) im.src = newUrl; else im.removeAttribute('src'); }
+    [x, y] = parse(newPos); render();
+  }
+  img.addEventListener('load', () => {
+    warn.textContent = minWidth && img.naturalWidth < minWidth
+      ? t('This image is small ({w} px wide) and may look blurry. Use one at least {min} px wide.').replace('{w}', img.naturalWidth).replace('{min}', minWidth) : '';
+  });
+  let dragging = false;
+  const moveTo = e => { const r = img.getBoundingClientRect(); x = clamp((e.clientX - r.left) / r.width * 100); y = clamp((e.clientY - r.top) / r.height * 100); render(); };
+  stage.addEventListener('pointerdown', e => { dragging = true; stage.setPointerCapture(e.pointerId); moveTo(e); });
+  stage.addEventListener('pointermove', e => { if (dragging) moveTo(e); });
+  stage.addEventListener('pointerup', () => { dragging = false; });
+  stage.addEventListener('pointercancel', () => { dragging = false; });
+  stage.addEventListener('keydown', e => {
+    const step = e.shiftKey ? 10 : 2;
+    const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (d) { e.preventDefault(); x = clamp(x + d[0]); y = clamp(y + d[1]); render(); }
+  });
+  const save = h('button', { className: 'btn secondary', type: 'button', textContent: t('Save position'), onclick: async () => {
+    try { await onSave(fmt()); say(msg, true, t('Saved.')); } catch (err) { say(msg, false, err.message); }
+  } });
+  const root = h('div', { className: 'focal stack' }, h('p', { className: 'hint', textContent: t('Click or drag on the photo to choose the part that must stay visible when it is cropped.') }),
+    stage, warn, frameBox, h('div', { className: 'actions' }, save), msg);
+  root.setImage = setImage;
+  setImage(url, pos);
+  return root;
+}
 const dateField = (opts = {}) => Dates.field({ lang: LANG, prevLabel: t('Previous month'), nextLabel: t('Next month'), ...opts });
+
+// ---- Dashboard ----
+const SVGNS = 'http://www.w3.org/2000/svg';
+const sv = (tag, attrs = {}, ...kids) => { const e = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.append(...kids); return e; };
+const PALETTE = ['#b47f41', '#3b2a25', '#6a8caf', '#7a9e7e', '#c0504d', '#8e6bb0', '#d4a64a', '#5b5b5b'];
+const num = n => new Intl.NumberFormat(LANG === 'ro' ? 'ro-RO' : 'en-GB').format(n);
+const percent = (v, total) => (total ? Math.round((v / total) * 1000) / 10 : 0);
+
+// A ring chart with the total in the middle and a legend with values and percentages.
+function donut({ title, items, big, small }) {
+  const card = h('div', { className: 'chartcard' }, h('h3', { textContent: title }));
+  const colored = items.map((i, k) => ({ ...i, color: PALETTE[k % PALETTE.length] }));
+  const total = colored.reduce((n, i) => n + i.value, 0);
+  if (!total) { card.append(h('p', { className: 'hint', textContent: t('No data in this period.') })); return card; }
+  const R = 100 / (2 * Math.PI); // circumference 100, so a segment's length is its percentage
+  let used = 0;
+  const rings = colored.filter(i => i.value > 0).map(i => {
+    const share = (i.value / total) * 100;
+    const c = sv('circle', { cx: 21, cy: 21, r: R, fill: 'none', stroke: i.color, 'stroke-width': 6, 'stroke-dasharray': `${share} ${100 - share}`, 'stroke-dashoffset': 25 - used });
+    used += share;
+    c.append(sv('title', {}, `${i.label}: ${i.text ?? i.value} (${percent(i.value, total)}%)`));
+    return c;
+  });
+  const svg = sv('svg', { viewBox: '0 0 42 42', class: 'donut', role: 'img', 'aria-label': title },
+    sv('circle', { cx: 21, cy: 21, r: R, fill: 'none', stroke: '#eee', 'stroke-width': 6 }), ...rings,
+    sv('text', { x: 21, y: 21, 'text-anchor': 'middle', class: 'donut-big' }, String(big)), sv('text', { x: 21, y: 26, 'text-anchor': 'middle', class: 'donut-small' }, small));
+  const legend = h('ul', { className: 'legend' }, ...colored.map(i => {
+    const sw = h('span', { className: 'swatch' }); sw.style.background = i.color;
+    return h('li', {}, sw, h('span', { className: 'lname', textContent: i.label }), h('span', { className: 'lval', textContent: `${i.text ?? i.value} \u00b7 ${percent(i.value, total)}%` }));
+  }));
+  card.append(h('div', { className: 'donutrow' }, svg, legend));
+  return card;
+}
+
+const niceMax = v => { const mag = 10 ** Math.floor(Math.log10(v)); return ([1, 2, 2.5, 5, 10].map(k => k * mag).find(x => x >= v)) || v; };
+// Stacked bars: earned (dark gold) and expected (light gold). rows: [{ label, done, expected, tip }]
+function barChart({ title, rows, every = 1 }) {
+  const W = 640, H = 220, L = 46, B = 24, top = 10, iw = W - L - 8, ih = H - B - top;
+  const max = niceMax(Math.max(1, ...rows.map(r => r.done + r.expected)));
+  const step = iw / rows.length, bw = Math.max(2, step * 0.7), y = v => top + ih - (v / max) * ih;
+  const kids = [];
+  for (let i = 0; i <= 4; i++) {
+    const v = (max / 4) * i;
+    kids.push(sv('line', { x1: L, x2: W - 8, y1: y(v), y2: y(v), stroke: '#e6e0d6' }), sv('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'axis' }, num(Math.round(v))));
+  }
+  rows.forEach((r, k) => {
+    const x = L + k * step + (step - bw) / 2, hd = (r.done / max) * ih, he = (r.expected / max) * ih;
+    const g = sv('g', {}, sv('title', {}, r.tip));
+    if (r.done) g.append(sv('rect', { x, y: top + ih - hd, width: bw, height: hd, fill: '#b47f41' }));
+    if (r.expected) g.append(sv('rect', { x, y: top + ih - hd - he, width: bw, height: he, fill: '#e3c99c' }));
+    kids.push(g);
+    if (k % every === 0) kids.push(sv('text', { x: x + bw / 2, y: H - 6, 'text-anchor': 'middle', class: 'axis' }, r.label));
+  });
+  return h('div', { className: 'chartwrap' }, sv('svg', { viewBox: `0 0 ${W} ${H}`, class: 'bars', role: 'img', 'aria-label': title }, ...kids));
+}
+
+function table(head, rows, foot) {
+  const tb = h('table', { className: 'data' }, h('thead', {}, h('tr', {}, ...head.map(x => h('th', { textContent: x })))), h('tbody', {}, ...rows.map(r => h('tr', {}, ...r.map(c => (c instanceof Node ? c : h('td', { textContent: c })))))));
+  if (foot) tb.append(h('tfoot', {}, h('tr', {}, ...foot.map(c => (c instanceof Node ? c : h('td', { textContent: c }))))));
+  return h('div', { className: 'tablewrap' }, tb);
+}
+
+async function dashboard() {
+  const first = await api(`${A}/stats`); // the current month, which also tells us today's date in the shop
+  const today = first.today, d0 = Dates.parse(today), iso = Dates.iso;
+  const y = d0.getFullYear(), m = d0.getMonth(), dow = (d0.getDay() + 6) % 7;
+  const week0 = new Date(d0); week0.setDate(d0.getDate() - dow); const week1 = new Date(week0); week1.setDate(week0.getDate() + 6);
+  const presets = {
+    today: [today, today], week: [iso(week0), iso(week1)], month: [iso(new Date(y, m, 1)), iso(new Date(y, m + 1, 0))],
+    lastmonth: [iso(new Date(y, m - 1, 1)), iso(new Date(y, m, 0))], year: [`${y}-01-01`, `${y}-12-31`],
+  };
+  const sel = h('select', { 'aria-label': t('Period') }, ...[['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['lastmonth', 'Last month'], ['year', 'This year'], ['custom', 'Custom']].map(([v, l]) => h('option', { value: v, textContent: t(l) })));
+  sel.value = 'month';
+  const fromF = dateField({ value: first.range.from, label: t('From') }), toF = dateField({ value: first.range.to, label: t('To') });
+  const show = h('button', { className: 'btn secondary', type: 'button', textContent: t('Show') });
+  const custom = h('span', { className: 'row', hidden: true }, h('span', { textContent: t('From') }), fromF, h('span', { textContent: t('To') }), toF, show);
+  const body = h('div', { className: 'stack' });
+  const load = async (from, to) => {
+    try { render(await api(`${A}/stats?from=${from}&to=${to}`)); } catch (e) { body.replaceChildren(h('p', { className: 'msg', textContent: e.message })); }
+  };
+  sel.onchange = () => { custom.hidden = sel.value !== 'custom'; if (sel.value !== 'custom') { const [a, b] = presets[sel.value]; fromF.value = a; toF.value = b; load(a, b); } };
+  show.onclick = () => load(fromF.value, toF.value);
+
+  function render(d) {
+    const cur = d.currency, money = n => `${num(n)} ${cur}`, T = d.totals, name = b => b.name;
+    const earned = T.revenue_done, expected = T.revenue_expected, all = T.total + T.cancelled;
+    const kpi = (label, value, note) => h('div', { className: 'kpi' }, h('span', { className: 'kl', textContent: t(label) }), h('strong', { textContent: value }), ...(note ? [h('small', { className: 'hint', textContent: note })] : []));
+    const parts = [
+      h('p', { className: 'hint', textContent: `${Dates.fmt(d.range.from, LANG)} \u2013 ${Dates.fmt(d.range.to, LANG)}` }),
+      h('div', { className: 'kpis' }, kpi('Appointments', num(T.total)), kpi('Completed', num(T.completed)), kpi('Upcoming', num(T.upcoming)),
+        kpi('Cancelled', num(T.cancelled), all ? `${percent(T.cancelled, all)}% ${t('Cancellation rate').toLowerCase()}` : ''),
+        kpi('Earned', money(earned)), kpi('Expected', money(expected)), kpi('Average per appointment', T.total ? money(Math.round((earned + expected) / T.total)) : '\u2013')),
+      h('div', { className: 'charts' },
+        donut({ title: t('Appointments per barber'), items: d.barbers.map(b => ({ label: name(b), value: b.total })), big: T.total, small: t('Appointments').toLowerCase() }),
+        donut({ title: t('Revenue per barber'), items: d.barbers.map(b => ({ label: name(b), value: b.revenue_done + b.revenue_expected, text: money(b.revenue_done + b.revenue_expected) })), big: num(earned + expected), small: cur }),
+        donut({ title: t('Share of appointments by service'), items: d.services.map(s => ({ label: (LANG === 'ro' && s.name_ro) || s.name, value: s.total })), big: T.total, small: t('Appointments').toLowerCase() }),
+        donut({ title: t('Appointment status'), items: [{ label: t('Completed'), value: T.completed }, { label: t('Upcoming'), value: T.upcoming }, { label: t('Cancelled'), value: T.cancelled }], big: all, small: t('Appointments').toLowerCase() })),
+      h('h2', { textContent: t('By barber') }),
+      table([t('Barber'), t('Appointments'), t('Completed'), t('Upcoming'), t('Cancelled'), t('Earned'), t('Expected')],
+        d.barbers.map(b => [b.name, num(b.total), num(b.completed), num(b.upcoming), num(b.cancelled), money(b.revenue_done), money(b.revenue_expected)]),
+        [t('Total'), num(T.total), num(T.completed), num(T.upcoming), num(T.cancelled), money(earned), money(expected)]),
+    ];
+
+    // revenue per day (a bar chart for the period, and a table of the days that had appointments)
+    const cell = (done, exp) => h('td', {}, document.createTextNode(num(done)), ...(exp ? [h('span', { className: 'exp', textContent: ` +${num(exp)}` })] : []));
+    const matrix = (rows, key) => {
+      const by = new Map();
+      for (const r of rows) { const e = by.get(r[key]) || new Map(); e.set(r.barber_id, r); by.set(r[key], e); }
+      return by;
+    };
+    const days = Math.round((Dates.parse(d.range.to) - Dates.parse(d.range.from)) / 864e5) + 1;
+    parts.push(h('h2', { textContent: t('Revenue per day') }));
+    if (days <= 62) {
+      const byDay = matrix(d.daily, 'day'), chartRows = [];
+      for (let i = 0; i < days; i++) {
+        const dt = Dates.parse(d.range.from); dt.setDate(dt.getDate() + i); const key = iso(dt), e = byDay.get(key);
+        const done = e ? [...e.values()].reduce((n, r) => n + r.revenue_done, 0) : 0, exp = e ? [...e.values()].reduce((n, r) => n + r.revenue_expected, 0) : 0;
+        chartRows.push({ label: String(dt.getDate()), done, expected: exp, tip: `${Dates.fmt(key, LANG)}: ${money(done)}${exp ? ` + ${money(exp)}` : ''}` });
+      }
+      parts.push(barChart({ title: t('Revenue per day'), rows: chartRows, every: days > 31 ? 3 : 1 }));
+      const dayRows = [...byDay.keys()].sort().map(key => {
+        const e = byDay.get(key), rs = [...e.values()];
+        return [Dates.fmt(key, LANG), ...d.barbers.map(b => (e.get(b.id) ? cell(e.get(b.id).revenue_done, e.get(b.id).revenue_expected) : h('td', { textContent: '\u2013' }))),
+          cell(rs.reduce((n, r) => n + r.revenue_done, 0), rs.reduce((n, r) => n + r.revenue_expected, 0)), num(rs.reduce((n, r) => n + r.completed + r.upcoming, 0))];
+      });
+      parts.push(dayRows.length ? table([t('Date'), ...d.barbers.map(b => b.name), t('Total'), t('Appointments')], dayRows) : h('p', { className: 'hint', textContent: t('No data in this period.') }));
+    } else parts.push(h('p', { className: 'hint', textContent: t('Choose a shorter period (up to 62 days) to see the numbers per day.') }));
+
+    // revenue per month for the year the period ends in
+    parts.push(h('h2', { textContent: `${t('Revenue per month')} ${d.year}` }));
+    const byMonth = matrix(d.monthly, 'month'), monthFmt = new Intl.DateTimeFormat(LANG === 'ro' ? 'ro-RO' : 'en-GB', { month: 'short' });
+    const mrows = [], mchart = [];
+    for (let i = 0; i < 12; i++) {
+      const key = `${d.year}-${String(i + 1).padStart(2, '0')}`, e = byMonth.get(key), rs = e ? [...e.values()] : [];
+      const done = rs.reduce((n, r) => n + r.revenue_done, 0), exp = rs.reduce((n, r) => n + r.revenue_expected, 0), label = monthFmt.format(new Date(+d.year, i, 1));
+      mchart.push({ label, done, expected: exp, tip: `${label} ${d.year}: ${money(done)}${exp ? ` + ${money(exp)}` : ''}` });
+      mrows.push([label, ...d.barbers.map(b => (e && e.get(b.id) ? cell(e.get(b.id).revenue_done, e.get(b.id).revenue_expected) : h('td', { textContent: '\u2013' }))), cell(done, exp), num(rs.reduce((n, r) => n + r.completed + r.upcoming, 0))]);
+    }
+    parts.push(barChart({ title: `${t('Revenue per month')} ${d.year}`, rows: mchart }), table([t('Month'), ...d.barbers.map(b => b.name), t('Total'), t('Appointments')], mrows));
+
+    // downloads
+    const sep = h('select', { 'aria-label': t('Separator') }, h('option', { value: ',', textContent: t('Comma (Google Sheets)') }), h('option', { value: ';', textContent: t('Semicolon (Excel with European settings)') }));
+    if (LANG === 'ro') sep.value = ';';
+    const get = kind => () => { location.href = `${A}/export.csv?kind=${kind}&from=${d.range.from}&to=${d.range.to}&sep=${encodeURIComponent(sep.value)}&lang=${LANG}`; };
+    parts.push(h('div', { className: 'card stack' }, h('h3', { textContent: t('Download') }),
+      h('label', {}, t('Separator'), sep),
+      h('div', { className: 'actions' }, ...[['appointments', 'All appointments (CSV)'], ['summary', 'Summary per barber (CSV)'], ['daily', 'Per day (CSV)'], ['monthly', 'Per month (CSV)']].map(([k, l]) => h('button', { className: 'btn secondary', type: 'button', textContent: t(l), onclick: get(k) }))),
+      h('p', { className: 'hint', textContent: t("Open the file in Google Sheets with File, Import, Upload, or double-click it to open it in Excel. The appointments file contains customers' personal data: keep it safe.") })),
+      h('p', { className: 'hint', textContent: t('Earned counts appointments that have already taken place, expected counts those still ahead. Cancelled appointments are not counted. Prices are the ones saved when the appointment was booked.') }));
+    body.replaceChildren(...parts);
+  }
+  panel.replaceChildren(h('h1', { textContent: t('Dashboard') }), h('div', { className: 'dayrow' }, sel, custom), body);
+  render(first);
+}
 
 // ---- Appointments ----
 async function appointments() {
@@ -192,12 +422,14 @@ async function appointments() {
     const refresh = async () => {
       slots.replaceChildren(); picked = null;
       try {
-        const { slots: list } = await api('/api/slots?' + new URLSearchParams({ service: a.service_id, barber: a.barber_id, date: date.value, token: a.token }));
-        if (!list.length) slots.append(h('span', { className: 'hint', textContent: t('No free times that day.') }));
+        const { slots: list } = await api('/api/slots?' + new URLSearchParams({ service: a.service_id, barber: a.barber_id, date: date.value, token: a.token, all: '1' }));
+        const why = { booked: t('Already booked'), past: t('Time has passed'), off: t('Not available') };
+        if (!list.some(s => s.free)) slots.append(h('span', { className: 'hint', textContent: t('No free times that day.') }));
         for (const s of list) {
-          const b = h('button', { type: 'button', className: 'slot', textContent: s.label });
+          const b = h('button', { type: 'button', className: 'slot' + (s.free ? '' : ' taken'), textContent: s.label, disabled: !s.free });
           b.setAttribute('aria-pressed', 'false');
-          b.onclick = () => { slots.querySelectorAll('.slot').forEach(x => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); picked = s; };
+          if (s.free) b.onclick = () => { slots.querySelectorAll('.slot').forEach(x => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); picked = s; };
+          else b.title = why[s.reason] || '';
           slots.append(b);
         }
       } catch (e) { msg.textContent = e.message; }
@@ -285,11 +517,12 @@ async function images() {
   const { images: list } = await api(`${A}/images`);
   panel.replaceChildren(h('h1', { textContent: t('Section images') }),
     h('p', { className: 'hint', textContent: t('Photos are resized for the web automatically. Landscape photos at least 1600 px wide work best.') }),
+    h('p', { className: 'hint', textContent: t('Photos are cropped to fit each section. Click the photo to mark the part that must always stay visible; the previews show the result on a computer and on a phone.') }),
     ...list.map(im => {
-      const pic = h('img', { className: 'thumb', src: im.url, alt: t(im.label) });
+      const picker = focalPicker({ url: im.url, pos: im.pos, frames: FRAMES.wide, minWidth: im.minWidth, onSave: pos => api(`${A}/images/${im.slot}/pos`, { pos }, 'PUT') });
       const reset = h('button', { className: 'linkbtn', type: 'button', textContent: t('Go back to the original image'), hidden: !im.custom, onclick: async () => { await api(`${A}/images/${im.slot}`, null, 'DELETE'); images(); } });
-      return h('div', { className: 'card stack' }, h('h3', { textContent: t(im.label) }), h('p', { className: 'hint', textContent: t(im.hint) }), pic,
-        uploader('Upload new image', `${A}/images/${im.slot}`, r => { pic.src = r.url; reset.hidden = false; }), reset);
+      return h('div', { className: 'card stack' }, h('h3', { textContent: t(im.label) }), h('p', { className: 'hint', textContent: t(im.hint) }), picker,
+        uploader('Upload new image', `${A}/images/${im.slot}`, () => images()), reset);
     }));
 }
 
@@ -354,8 +587,9 @@ function timeOff(b) {
 async function team() {
   const { team: list } = await api(`${A}/team`);
   const cards = list.map(b => {
-    const photo = h('img', { className: 'thumb', src: b.photo || '', alt: b.name, hidden: !b.photo });
-    const removePhoto = h('button', { className: 'linkbtn danger', type: 'button', textContent: t('Remove photo'), hidden: !b.photo, onclick: async () => { await api(`${A}/team/${b.id}/photo`, null, 'DELETE'); photo.hidden = removePhoto.hidden = true; } });
+    const photo = focalPicker({ url: b.photo || '', pos: b.photo_pos, frames: FRAMES.square, minWidth: 500, onSave: pos => api(`${A}/team/${b.id}/photo-pos`, { pos }, 'PUT') });
+    photo.hidden = !b.photo;
+    const removePhoto = h('button', { className: 'linkbtn danger', type: 'button', textContent: t('Remove photo'), hidden: !b.photo, onclick: async () => { await api(`${A}/team/${b.id}/photo`, null, 'DELETE'); photo.hidden = removePhoto.hidden = true; photo.setImage('', '50% 50%'); } });
     const login = OWNER ? h('div', {}, h('h3', { textContent: t('Sign-in for this barber') }), h('p', { className: 'hint', textContent: t('With a login they can manage their own profile, schedule, photos and appointments.') }),
       editor({ saveText: 'Save login', fields: [{ name: 'email', label: 'Sign-in email', type: 'email', value: b.login_email }, { name: 'password', label: b.login_email ? 'New password (leave empty to keep the current one)' : 'Password (at least 10 characters)', type: 'password', attrs: { autocomplete: 'new-password' } }],
         onSave: v => api(`${A}/team/${b.id}/login`, v, 'PUT') })) : '';
@@ -370,7 +604,7 @@ async function team() {
           ...(OWNER ? [{ name: 'active', label: 'Show on the site and allow booking', type: 'checkbox', value: b.active }] : [])],
           onSave: v => api(`${A}/team/${b.id}`, v, 'PUT') }),
         h('h3', { textContent: t('Photo') }), photo, removePhoto,
-        uploader('Upload photo', `${A}/team/${b.id}/photo`, r => { photo.src = r.url; photo.hidden = removePhoto.hidden = false; }),
+        uploader('Upload photo', `${A}/team/${b.id}/photo`, r => { photo.setImage(r.url, '50% 50%'); photo.hidden = removePhoto.hidden = false; }),
         h('h3', { textContent: t('Weekly schedule (when clients can book)') }), hoursEditor(b),
         h('h3', { textContent: t('Days off') }), timeOff(b), login));
   });
@@ -407,7 +641,7 @@ async function gallery() {
     h('div', { className: 'card stack' }, h('h3', { textContent: t('Add a photo') }), ...(barber ? [h('label', {}, t('Barber'), barber)] : []),
       h('div', { className: 'grid2' }, h('label', {}, `${t('What it shows')} (EN)`, tag), h('label', {}, `${t('What it shows')} (RO)`, tagRo)),
       h('div', { className: 'grid2' }, h('label', {}, `${t('Description')} (EN)`, caption), h('label', {}, `${t('Description')} (RO)`, captionRo)), up),
-    h('div', { className: 'photos' }, ...photos.map(p => h('div', { className: 'card' }, h('img', { src: p.url, alt: p.caption || p.tag || '', loading: 'lazy' }),
+    h('div', { className: 'photos' }, ...photos.map(p => h('div', { className: 'card' }, focalPicker({ url: p.url, pos: p.pos, frames: FRAMES.tile, minWidth: 700, onSave: pos => api(`${A}/gallery/${p.id}/pos`, { pos }, 'PUT') }),
       editor({ fields: [...bi('tag', 'What it shows', { tag: p.tag || '', tag_ro: p.tag_ro || '' }, { half: false }), ...bi('caption', 'Description', { caption: p.caption || '', caption_ro: p.caption_ro || '' }, { half: false })],
         onSave: v => api(`${A}/gallery/${p.id}`, v, 'PUT'), onDelete: async () => { await api(`${A}/gallery/${p.id}`, null, 'DELETE'); gallery(); } })))));
 }
@@ -423,11 +657,11 @@ async function messages() {
 
 // ---- Tabs ----
 const TABS = OWNER
-  ? [['appointments', 'Appointments', appointments], ['site', 'Site text', site], ['images', 'Images', images], ['services', 'Services', services], ['team', 'Team', team], ['reviews', 'Reviews', reviews], ['gallery', 'Gallery', gallery], ['messages', 'Messages', messages]]
-  : [['appointments', 'Appointments', appointments], ['team', 'My profile', team], ['gallery', 'Gallery', gallery]];
+  ? [['dashboard', 'Dashboard', dashboard], ['appointments', 'Appointments', appointments], ['site', 'Site text', site], ['images', 'Images', images], ['services', 'Services', services], ['team', 'Team', team], ['reviews', 'Reviews', reviews], ['gallery', 'Gallery', gallery], ['messages', 'Messages', messages]]
+  : [['dashboard', 'Dashboard', dashboard], ['appointments', 'Appointments', appointments], ['team', 'My profile', team], ['gallery', 'Gallery', gallery]];
 const tabs = $('#tabs');
 async function show() {
-  const id = location.hash.slice(1) || 'appointments';
+  const id = location.hash.slice(1) || 'dashboard';
   const tab = TABS.find(x => x[0] === id) || TABS[0];
   tabs.querySelectorAll('button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.id === tab[0])));
   panel.replaceChildren(h('p', { className: 'hint', textContent: t('Loading...') }));

@@ -27,11 +27,25 @@ const onScroll = () => nav.classList.toggle('scrolled', scrollY >= 100);
 addEventListener('scroll', onScroll, { passive: true });
 onScroll();
 
-// Mobile menu.
+// Phone menu: a full-screen panel. The page behind it does not scroll while it is open.
 const toggle = $('.nav-toggle'), menu = $('#menu');
-const setMenu = open => { menu.classList.toggle('open', open); toggle.setAttribute('aria-expanded', String(open)); };
+const setMenu = open => {
+  menu.classList.toggle('open', open); nav.classList.toggle('open', open);
+  document.body.classList.toggle('menu-open', open); toggle.setAttribute('aria-expanded', String(open));
+};
 toggle.addEventListener('click', () => setMenu(toggle.getAttribute('aria-expanded') !== 'true'));
 menu.addEventListener('click', e => { if (e.target.closest('a')) setMenu(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') setMenu(false); });
+addEventListener('resize', () => { if (innerWidth > 991) setMenu(false); });
+
+// Booking bar for phones: appears once the visitor scrolls past the top, hides while typing in a form.
+const bar = $('.book-bar');
+if (bar) {
+  const update = () => bar.classList.toggle('show', scrollY > innerHeight * 0.6);
+  addEventListener('scroll', update, { passive: true }); update();
+  document.addEventListener('focusin', e => { if (e.target.matches('input, textarea, select')) document.body.classList.add('typing'); });
+  document.addEventListener('focusout', () => document.body.classList.remove('typing'));
+}
 
 // Smooth scrolling to #sections over one second with an ease-in-out curve.
 function scrollToY(y) {
@@ -64,6 +78,14 @@ if ($('#home')) {
   links.forEach((_, id) => { const s = document.getElementById(id); if (s) seen.observe(s); });
 }
 
+// Calls onSwipe(-1) for a swipe to the left and onSwipe(1) for a swipe to the right (touch and mouse).
+function swipe(el, onSwipe) {
+  let x0 = null;
+  el.addEventListener('pointerdown', e => { x0 = e.clientX; });
+  el.addEventListener('pointerup', e => { if (x0 === null) return; const dx = e.clientX - x0; x0 = null; if (Math.abs(dx) > 50) onSwipe(dx < 0 ? -1 : 1); });
+  el.addEventListener('pointercancel', () => { x0 = null; });
+}
+
 // Testimonials carousel: slides sideways, auto-advances every 5 s, pauses on hover or focus.
 const carousel = $('.carousel');
 if (carousel) {
@@ -78,6 +100,7 @@ if (carousel) {
   const stop = () => clearInterval(timer);
   $('.prev', carousel)?.addEventListener('click', () => go(i - 1));
   $('.next', carousel)?.addEventListener('click', () => go(i + 1));
+  swipe(carousel, dir => go(i - dir));
   carousel.addEventListener('mouseenter', stop); carousel.addEventListener('mouseleave', play);
   carousel.addEventListener('focusin', stop); carousel.addEventListener('focusout', play);
   go(0); play();
@@ -88,6 +111,30 @@ $$('.filters .chip').forEach(chip => chip.addEventListener('click', () => {
   $$('.filters .chip').forEach(c => c.setAttribute('aria-pressed', String(c === chip)));
   $$('.wall figure').forEach(f => { f.hidden = !!chip.dataset.barber && f.dataset.barber !== chip.dataset.barber; });
 }));
+
+// Gallery viewer: a tile opens the whole photo; arrows, swipe and the arrow keys move between photos.
+const lightbox = $('#lightbox');
+if (lightbox) {
+  const photo = $('img', lightbox), caption = $('figcaption', lightbox);
+  let tiles = [], k = 0;
+  const show = n => {
+    k = (n + tiles.length) % tiles.length;
+    const t = tiles[k];
+    photo.src = t.dataset.full; photo.alt = t.dataset.alt || '';
+    caption.textContent = t.closest('figure').querySelector('figcaption')?.textContent || '';
+  };
+  $$('.tile').forEach(t => t.addEventListener('click', () => {
+    tiles = $$('.wall figure:not([hidden]) .tile');
+    show(tiles.indexOf(t)); lightbox.showModal(); document.body.classList.add('noscroll');
+  }));
+  $('.lb-prev', lightbox).addEventListener('click', () => show(k - 1));
+  $('.lb-next', lightbox).addEventListener('click', () => show(k + 1));
+  $('.lb-close', lightbox).addEventListener('click', () => lightbox.close());
+  lightbox.addEventListener('click', e => { if (e.target === lightbox) lightbox.close(); });
+  lightbox.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') show(k - 1); if (e.key === 'ArrowRight') show(k + 1); });
+  lightbox.addEventListener('close', () => { photo.removeAttribute('src'); document.body.classList.remove('noscroll'); });
+  swipe(lightbox, dir => show(k - dir));
+}
 
 // Contact form.
 const contact = $('#contact-form');
@@ -101,19 +148,22 @@ if (contact) contact.addEventListener('submit', async e => {
   } catch (err) { out.textContent = err.message; }
 });
 
-// Slot picker shared by booking and manage pages.
+// Slot picker shared by booking and manage pages. Every time of the day is shown; times that cannot be booked
+// (already booked, in the past, or blocked) are greyed out and cannot be chosen.
 function slotPicker(box, getParams, onPick) {
+  const why = { booked: T.slotBooked, past: T.slotPast, off: T.slotOff };
   return async function refresh() {
     box.replaceChildren();
     const p = getParams();
     if (!p) return;
     try {
-      const { slots } = await api('/api/slots?' + new URLSearchParams(p));
-      if (!slots.length) { box.append(h('span', { className: 'hint', textContent: T.noTimes })); return; }
+      const { slots } = await api('/api/slots?' + new URLSearchParams({ ...p, all: '1' }));
+      if (!slots.some(s => s.free)) box.append(h('p', { className: 'hint nofree', textContent: T.noTimes }));
       for (const s of slots) {
-        const b = h('button', { type: 'button', className: 'slot', textContent: s.label });
+        const b = h('button', { type: 'button', className: 'slot' + (s.free ? '' : ' taken'), textContent: s.label, disabled: !s.free });
         b.setAttribute('aria-pressed', 'false');
-        b.onclick = () => { $$('.slot', box).forEach(x => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); onPick(s); };
+        if (s.free) b.onclick = () => { $$('.slot', box).forEach(x => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); onPick(s); };
+        else { const reason = why[s.reason] || T.slotOff; b.title = reason; b.setAttribute('aria-label', `${s.label}, ${reason}`); }
         box.append(b);
       }
     } catch (e) { box.textContent = e.message; }
@@ -123,7 +173,8 @@ function slotPicker(box, getParams, onPick) {
 const book = $('#book');
 if (book) {
   const f = book.elements, msg = $('#msg'), offers = JSON.parse(book.dataset.offers), holder = $('#datepick');
-  const cal = Dates.field({ lang: LANG, inline: true, min: holder.dataset.min, max: holder.dataset.max, prevLabel: T.prevMonth, nextLabel: T.nextMonth });
+  const cal = Dates.field({ lang: LANG, inline: true, min: holder.dataset.min, max: holder.dataset.max, prevLabel: T.prevMonth, nextLabel: T.nextMonth, unavailableLabel: T.dayFull,
+    availability: async month => (await api('/api/days?' + new URLSearchParams({ service: f.service.value, barber: f.barber.value, month }))).days });
   holder.append(cal);
   let picked = null;
   const refresh = slotPicker($('#slots'), () => (f.service.value && cal.value ? { service: f.service.value, barber: f.barber.value, date: cal.value } : null), s => (picked = s));
@@ -136,7 +187,7 @@ if (book) {
   if (q.get('service')) f.service.value = q.get('service');
   syncBarbers();
   if (q.get('barber') && f.barber.options) f.barber.value = q.get('barber');
-  for (const n of ['service', 'barber']) f[n].addEventListener('change', () => { picked = null; if (n === 'service') syncBarbers(); refresh(); });
+  for (const n of ['service', 'barber']) f[n].addEventListener('change', () => { picked = null; if (n === 'service') syncBarbers(); cal.reloadAvailability(); refresh(); });
   cal.addEventListener('change', () => { picked = null; refresh(); });
   book.addEventListener('submit', async e => {
     e.preventDefault();
@@ -152,7 +203,8 @@ if (book) {
 const manage = $('#manage');
 if (manage) {
   const d = manage.dataset, msg = $('#msg');
-  const cal = Dates.field({ lang: LANG, inline: true, value: d.value, min: d.min, max: d.max, prevLabel: T.prevMonth, nextLabel: T.nextMonth });
+  const cal = Dates.field({ lang: LANG, inline: true, value: d.value, min: d.min, max: d.max, prevLabel: T.prevMonth, nextLabel: T.nextMonth, unavailableLabel: T.dayFull,
+    availability: async month => (await api('/api/days?' + new URLSearchParams({ service: d.service, barber: d.barber, month, token: d.token }))).days });
   $('#datepick').append(cal);
   let picked = null;
   const refresh = slotPicker($('#slots'), () => (cal.value ? { service: d.service, barber: d.barber, date: cal.value, token: d.token } : null), s => (picked = s));

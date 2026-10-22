@@ -3,7 +3,8 @@ const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const v = require('../views');
 const booking = require('../lib/booking');
-const { slots, validDate } = require('../lib/availability');
+const { slots, availableDays, validDate } = require('../lib/availability');
+const { todayStr } = require('../lib/shoptime');
 const { send } = require('../lib/mail');
 const { getSettings } = require('../content');
 const { DEFAULT_LANG, normLang, t } = require('../i18n');
@@ -30,7 +31,15 @@ router.get('/booking/:token', (req, res, next) => {
 router.get('/api/slots', (req, res) => {
   let ignoreId = 0;
   if (req.query.token) { const a = booking.byToken(req.query.token); if (a) ignoreId = a.id; }
-  res.json({ slots: slots({ serviceId: +req.query.service, barberId: +req.query.barber || 0, date: String(req.query.date || ''), ignoreId }) });
+  // all=1 also returns the times that cannot be booked, with the reason, so the page can show them greyed out.
+  res.json({ slots: slots({ serviceId: +req.query.service, barberId: +req.query.barber || 0, date: String(req.query.date || ''), ignoreId, all: req.query.all === '1' }) });
+});
+
+// Dates in a month that still have a free time, so the calendar can grey out days that are full, closed or past.
+router.get('/api/days', (req, res) => {
+  let ignoreId = 0;
+  if (req.query.token) { const a = booking.byToken(req.query.token); if (a) ignoreId = a.id; }
+  res.json({ days: availableDays({ serviceId: +req.query.service, barberId: +req.query.barber || 0, month: String(req.query.month || ''), ignoreId }) });
 });
 
 router.post('/api/book', limit, (req, res) => {
@@ -40,6 +49,7 @@ router.post('/api/book', limit, (req, res) => {
   if (!PHONE.test(phone)) return bad(req, res, 'errPhone');
   if (!EMAIL.test(email)) return bad(req, res, 'errEmail');
   if (!validDate(date) || !Number.isInteger(b.start_min)) return bad(req, res, 'errDateTime');
+  if (date < todayStr()) return bad(req, res, 'errPast');
   if (b.consent !== true) return bad(req, res, 'errConsent');
   const a = booking.create({ serviceId: +b.service, barberId: +b.barber, date, startMin: b.start_min, name, phone, email, lang: langOf(req) });
   if (!a) return bad(req, res, 'errTaken', 409);
@@ -59,6 +69,7 @@ router.post('/api/booking/:token/move', limit, (req, res) => {
   const a = mine(req, res); if (!a) return;
   const date = clean(req.body?.date, 10), start = req.body?.start_min;
   if (!validDate(date) || !Number.isInteger(start)) return bad(req, res, 'errDateTime');
+  if (date < todayStr()) return bad(req, res, 'errPast');
   if (!booking.move(a, date, start)) return bad(req, res, 'errTaken', 409);
   booking.notify(booking.byId(a.id), 'moved', 'customer');
   res.json({ ok: true });

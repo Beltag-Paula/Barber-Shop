@@ -78,6 +78,9 @@ addColumn('testimonials', 'quote_ro', 'TEXT');
 addColumn('gallery', 'tag_ro', 'TEXT');
 addColumn('gallery', 'caption_ro', 'TEXT');
 addColumn('appointments', 'lang', "TEXT NOT NULL DEFAULT 'en'");
+addColumn('appointments', 'price', 'INTEGER'); // price at the time of booking
+addColumn('barbers', 'photo_pos', 'TEXT');   // focal point of a photo, like '50% 30%'
+addColumn('gallery', 'pos', 'TEXT');
 
 // Starter data so the site works on first run. Everything here is editable from /admin.
 if (!db.prepare('SELECT 1 FROM barbers').get()) {
@@ -106,6 +109,8 @@ if (!db.prepare('SELECT 1 FROM barbers').get()) {
     addT.run('Another client', 'City', 'A second review shows the carousel at work. Edit or delete these in the admin.', 2);
   })();
 }
+
+db.exec('UPDATE appointments SET price = (SELECT price FROM services WHERE services.id = appointments.service_id) WHERE price IS NULL');
 
 // Romanian versions of the starter rows. Rows the owner has already edited are left alone.
 db.transaction(() => {
